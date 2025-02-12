@@ -7,7 +7,7 @@ import numpy as np
 import requests
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 
@@ -17,26 +17,6 @@ load_dotenv()
 class MealPlanner(ABC):
     def __init__(self):
         self.url = os.getenv("URL")
-
-    def get_data(self):
-        """ดึงข้อมูลจาก API"""
-        url = self.url + "get_limit"
-        
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
-            print("📥 ข้อมูลถูกดึงมาเรียบร้อยแล้ว!")
-            # print(json.dumps(data, indent=4))
-            if not isinstance(data, dict):
-                raise ValueError("Invalid data format from API")
-            return data
-        except requests.exceptions.RequestException as err:
-            print(f"❌ Error fetching data: {err}")
-            return None
-        except (json.JSONDecodeError, ValueError) as err:
-            print(f"❌ Error processing data: {err}")
-            return None
 
     @staticmethod
     def calculate_total_nutrition(meals):
@@ -78,7 +58,6 @@ class CreateMealPlan(MealPlanner):
     def __init__(self):
         super().__init__()
         
-
     def find_optimal_clusters(self, food_menus):
         """ค้นหาจำนวนคลัสเตอร์ที่เหมาะสม"""
         model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -124,7 +103,6 @@ class CreateMealPlan(MealPlanner):
         food_menus = food_data["food_menus"]
         user_id = food_data.get("user_id")
         days = food_data.get("days")
-        # days = 1
         nutrition_limit = food_data.get("nutrition_limit_per_day", {})
         
         clustered_meals = self.cluster_meals(food_menus)
@@ -132,7 +110,6 @@ class CreateMealPlan(MealPlanner):
         mealplan = {
             "user_id": user_id,
             "mealplans": [],
-            # "total_nutrition_per_day": []
         }
         selected_meals = set()
         
@@ -150,9 +127,7 @@ class CreateMealPlan(MealPlanner):
                 if len(daily_meals) >= 3:
                     break
             
-            # total_nutrition = self.calculate_total_nutrition(daily_meals)
             mealplan["mealplans"].append(daily_meals if daily_meals else [])
-            # mealplan["total_nutrition_per_day"].append(total_nutrition)
 
         return mealplan
 
@@ -170,23 +145,6 @@ class CreateMealPlan(MealPlanner):
 class UpdateMealPlan:
     def __init__(self):
         self.url = os.getenv("URL")
-    
-    def get_data(self):
-        """ ดึงข้อมูลจาก API """
-        url = self.url + "get_limit"
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
-            
-            if "food_menus" not in data or "nutrition_limit_per_day" not in data:
-                print(f"❌ Invalid data format: {data}")
-                return None
-            
-            return data
-        except requests.exceptions.RequestException as err:
-            print(f"❌ Error fetching data: {err}")
-            return None
     
     def get_mealplan(self):
         """ ดึงข้อมูลแผนมื้ออาหารจาก API """
@@ -253,8 +211,6 @@ class UpdateMealPlan:
             # คำนวณสารอาหารรวมของวันนั้น ๆ
             total_nutrition_per_day.append(self.calculate_total_nutrition(daily_meals))
 
-        # เพิ่ม total_nutrition_per_day ลงใน JSON
-        # mealplan["total_nutrition_per_day"] = total_nutrition_per_day
         return mealplan
 
 app = FastAPI()
@@ -263,14 +219,15 @@ app = FastAPI()
 async def root():
     return {"message": "API is running!"}
     
-@app.get("/ai")
-async def create_meals():
+@app.post("/ai")
+async def create_meals(request: Request):
     print("🍽 กำลังดึงข้อมูลจากเซิร์ฟเวอร์...")
 
     creator = CreateMealPlan()
-    food_data = creator.get_data()
+    food_data = await request.json()
+    
     if not food_data:
-        raise HTTPException(status_code=500, detail="Error fetching data")
+        raise HTTPException(status_code=400, detail="Invalid input data")
 
     print("🔍 กำลังสร้างแผนมื้ออาหาร...")
     try:
@@ -279,18 +236,17 @@ async def create_meals():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-    # return {"message": "แผนมื้ออาหารถูกสร้างเรียบร้อยแล้ว!"}
     return mealplan
 
-@app.get("/ai_update")
-async def update_meals():
+@app.post("/ai_update")
+async def update_meals(request: Request):
     updater = UpdateMealPlan()
     print("🍽 กำลังดึงข้อมูลจากเซิร์ฟเวอร์...")
 
     try:
-        food_data = updater.get_data()
+        food_data = await request.json()
         if not food_data:
-            raise HTTPException(status_code=500, detail="ไม่สามารถดึงข้อมูลได้")
+            raise HTTPException(status_code=400, detail="Invalid input data")
         
         print("🔍 กำลังสร้างแผนมื้ออาหาร...")
         mealplan = updater.get_mealplan()
@@ -303,9 +259,7 @@ async def update_meals():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # return {"message": "แผนมื้ออาหารถูกอัปเดตเรียบร้อยแล้ว!"}
     return updated_mealplan
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=4000)
