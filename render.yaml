@@ -1,0 +1,11 @@
+
+services:
+  - type: web
+    name: fastapi-app
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "bash start.sh"
+    envVars:
+      - key: URL
+        value: "http://127.0.0.1:7878/"
