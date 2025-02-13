@@ -13,7 +13,7 @@ from sklearn.cluster import KMeans
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
-    
+
 class MealPlanner(ABC):
     def __init__(self):
         self.url = os.getenv("URL")
@@ -269,4 +269,5 @@ async def update_meals(request: Request):
     return updated_mealplan
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=4000)
+    
+    uvicorn.run(app, host="127.0.0.1", port=8000)
