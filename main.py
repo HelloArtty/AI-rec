@@ -43,16 +43,6 @@ class MealPlanner(ABC):
         """Abstract method to be implemented by child classes"""
         pass
 
-    # @abstractmethod
-    # def send_mealplan(self, mealplan):
-    #     """ ส่งแผนมื้ออาหารไปยังเซิร์ฟเวอร์ """
-    #     url = os.getenv("URL") + "mealplan"
-    #     try:
-    #         response = requests.post(url, json=mealplan)
-    #         response.raise_for_status()
-    #         print("✅ แผนมื้ออาหารถูกส่งไปยังเซิร์ฟเวอร์เรียบร้อยแล้ว!")
-    #     except requests.exceptions.RequestException as err:
-    #         print(f"❌ Error sending meal plan: {err}")
 
 class CreateMealPlan(MealPlanner):
     def __init__(self):
@@ -101,14 +91,14 @@ class CreateMealPlan(MealPlanner):
             raise ValueError("Invalid food_data format")
         
         food_menus = food_data["food_menus"]
-        user_id = food_data.get("user_id")
+        user_line_id = str(food_data.get("user_line_id", ""))
         days = food_data.get("days")
         nutrition_limit = food_data.get("nutrition_limit_per_day", {})
         
         clustered_meals = self.cluster_meals(food_menus)
         
         mealplan = {
-            "user_id": user_id,
+            "user_line_id": user_line_id,
             "mealplans": [],
         }
         selected_meals = set()
@@ -130,48 +120,10 @@ class CreateMealPlan(MealPlanner):
             mealplan["mealplans"].append(daily_meals if daily_meals else [])
 
         return mealplan
-
-    # def send_mealplan(self, mealplan):
-    #     """ส่งแผนมื้ออาหารไปยังเซิร์ฟเวอร์"""
-    #     url = self.url + "mealplan"
-    #     try:
-    #         response = requests.post(url, json=mealplan)
-    #         response.raise_for_status()
-    #         print("✅ แผนมื้ออาหารถูกส่งไปยังเซิร์ฟเวอร์เรียบร้อยแล้ว!")
-    #     except requests.exceptions.RequestException as err:
-    #         print(f"❌ Error sending meal plan: {err}")
-    #         raise HTTPException(status_code=500, detail=str(err))
-
+    
 class UpdateMealPlan:
     def __init__(self):
         self.url = os.getenv("URL")
-    
-    # def get_mealplan(self):
-    #     """ ดึงข้อมูลแผนมื้ออาหารจาก API """
-    #     url = self.url + "get_mealplan"
-    #     try:
-    #         response = requests.get(url)
-    #         response.raise_for_status()
-    #         data = response.json()
-            
-    #         if "mealplans" not in data:
-    #             print(f"❌ Key 'mealplans' not found in response: {data}")
-    #             data["mealplans"] = []
-            
-    #         return data
-    #     except requests.exceptions.RequestException as err:
-    #         print(f"❌ Error fetching meal plan: {err}")
-    #         return None
-    
-    # def send_mealplan(self, mealplan):
-    #     """ ส่งแผนมื้ออาหารไปยังเซิร์ฟเวอร์ """
-    #     url = f"{self.url}update_mealplan"
-    #     try:
-    #         response = requests.post(url, json=mealplan)
-    #         response.raise_for_status()
-    #         print("✅ แผนมื้ออาหารถูกส่งไปยังเซิร์ฟเวอร์เรียบร้อยแล้ว!")
-    #     except requests.exceptions.RequestException as err:
-    #         print(f"❌ Error sending meal plan: {err}")
     
     def calculate_total_nutrition(self, meals):
         """ คำนวณสารอาหารรวมจากมื้ออาหารที่ไม่เป็น {} """
@@ -216,7 +168,7 @@ class UpdateMealPlan:
 app = FastAPI()
 
 @app.get("/")
-async def root():
+def root():
     return {"message": "API is running!"}
     
 @app.post("/ai")
@@ -225,7 +177,6 @@ async def create_meals(request: Request):
 
     creator = CreateMealPlan()
     food_data = await request.json()
-    # print(f"📦 ข้อมูลที่ได้รับ: {food_data}")
     
     if not food_data:
         raise HTTPException(status_code=400, detail="Invalid input data")
@@ -233,11 +184,9 @@ async def create_meals(request: Request):
     print("🔍 กำลังสร้างแผนมื้ออาหาร...")
     try:
         mealplan = creator.process_mealplan(food_data)
-        # creator.send_mealplan(mealplan)
     except Exception as e:
         print(f"❌ Error creating meal plan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    
     return mealplan
 
 @app.post("/ai_update")
@@ -247,7 +196,6 @@ async def update_meals(request: Request):
 
     try:
         request_data = await request.json()
-        # print(f"📦 ข้อมูลที่ได้รับ: {request_data}")
         if not request_data:
             raise HTTPException(status_code=400, detail="Invalid input data")
         
@@ -260,12 +208,10 @@ async def update_meals(request: Request):
         
         print("🔍 กำลังสร้างแผนมื้ออาหาร...")
         updated_mealplan = updater.update_mealplan(mealplan, food_data, nutrition_limit_per_day)
-        # updater.send_mealplan(updated_mealplan)
     
     except Exception as e:
         print(f"❌ Error updating meal plan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
     return updated_mealplan
 
 if __name__ == "__main__":
