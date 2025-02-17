@@ -191,27 +191,52 @@ class UpdateMealPlan:
                         available_meals.remove(meal)
                         break
 
-            # ถ้ายังมีที่ว่าง ให้เลือกเมนูจากคลัสเตอร์ที่สมดุล
+            # ถ้ายังมีที่ว่าง ให้เลือกเมนูจากคลัสเตอร์แบบสุ่ม
             for i in empty_slots:
-                if daily_meals[i] == {} and available_meals:
-                    best_meal = self.find_balanced_meal(available_meals, nutrition_limit)
-                    if best_meal:
-                        daily_meals[i] = best_meal
-                        available_meals.remove(best_meal)
+                if daily_meals[i] == {}:
+                    for cluster_id in clustered_meals:
+                        cluster_meals = clustered_meals[cluster_id]
+                        random.shuffle(cluster_meals)
+                        for meal in cluster_meals:
+                            if meal["recipe_id"] not in used_recipes:
+                                daily_meals[i] = meal
+                                used_recipes.add(meal["recipe_id"])
+                                break
+                        if daily_meals[i] != {}:
+                            break
 
         return mealplan
 
     def cluster_meals(self, food_menus):
-        """จัดกลุ่มเมนูโดยพิจารณาความหลากหลาย"""
-        unique_menus = list({meal["recipe_id"]: meal for meal in food_menus}.values())
-        num_meals = len(unique_menus)
-        num_clusters = min(3, num_meals)  
+        """ แบ่งกลุ่มอาหารโดยใช้ KMeans """
+        num_clusters = 3  # บังคับให้แบ่งเป็น 3 คลัสเตอร์เสมอ
+        model = SentenceTransformer('all-MiniLM-L6-v2')
 
-        clustered_meals = defaultdict(list)
-        random.shuffle(unique_menus)
-        for i, meal in enumerate(unique_menus):
-            clustered_meals[i % num_clusters].append(meal)
-        
+        meal_names = [meal['name'] for meal in food_menus]
+        embeddings = model.encode(meal_names)
+
+        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
+        clusters = kmeans.fit_predict(embeddings)
+
+        clustered_meals = {i: [] for i in range(num_clusters)}
+        for meal, cluster in zip(food_menus, clusters):
+            clustered_meals[cluster].append(meal)
+
+        # ตรวจสอบจำนวนเมนูทั้งหมดแล้วหาร 3 เพื่อกำหนดจำนวนเมนูในแต่ละคลัสเตอร์
+        num_meals = len(food_menus)
+        print("📌 Number of meals:", num_meals)
+        min_meals_per_cluster = num_meals // num_clusters
+        print("📌 Min meals per cluster:", min_meals_per_cluster)
+
+        # ✅ ถ้าคลัสเตอร์ไหนไม่มีเมนู → แบ่งใหม่แบบสุ่ม
+        if any(len(v) < min_meals_per_cluster for v in clustered_meals.values()):
+            random.shuffle(food_menus)
+            clustered_meals = {
+                0: food_menus[:num_meals // 3],
+                1: food_menus[num_meals // 3 : 2 * num_meals // 3],
+                2: food_menus[2 * num_meals // 3:]
+            }
+        print("📌 Clustered Meals:", {k: len(v) for k, v in clustered_meals.items()})
         return clustered_meals
 
     def find_balanced_meal(self, available_meals, nutrition_limit):
