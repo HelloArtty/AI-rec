@@ -101,13 +101,8 @@ class CreateMealPlan(MealPlanner):
         if not isinstance(food_data, dict) or "food_menus" not in food_data:
             raise ValueError("Invalid food_data format")
         
-        # unique_meals = list({meal['name']: meal for meal in food_menus}.values())
-        # print(f"Number of unique meals: {len(unique_meals)}")
-        
         food_menus = food_data["food_menus"]
-        # food_menus = unique_meals
-
-        user_line_id = str(food_data.get("user_line_id", ""))
+        user_line_id = int(food_data.get("user_line_id", ""))
         days = food_data.get("days")
         nutrition_limit = food_data.get("nutrition_limit_per_day", {})
 
@@ -122,24 +117,25 @@ class CreateMealPlan(MealPlanner):
             for cluster_id in clustered_meals:
                 meal = self.select_meal(clustered_meals[cluster_id], selected_meals)
                 if meal:
+                    meal["recipe_id"] = int(meal["recipe_id"])  # แปลง recipe_id เป็น int
                     daily_meals.append(meal)
                     selected_meals.add(meal["name"])
-                    self.used_meals.add(meal["name"])  # บันทึกว่าเคยใช้ไปแล้ว
+                    self.used_meals.add(meal["name"])
 
-            # ถ้ายังได้ไม่ครบ 3 มื้อ → หาจากที่เหลือ
             remaining_meals = [meal for cluster in clustered_meals.values() for meal in cluster]
             random.shuffle(remaining_meals)
             while len(daily_meals) < 3 and remaining_meals:
                 meal = remaining_meals.pop(0)
                 if meal["name"] not in selected_meals and self.is_within_nutrition_limit(daily_meals + [meal], nutrition_limit):
+                    meal["recipe_id"] = int(meal["recipe_id"])  # แปลง recipe_id เป็น int
                     daily_meals.append(meal)
                     selected_meals.add(meal["name"])
                     self.used_meals.add(meal["name"])
 
             mealplan["mealplans"].append(daily_meals)
-            # print(f"📌 Daily Meals ({len(daily_meals)}): {[meal['name'] for meal in daily_meals]}")
 
         return mealplan
+
 
 class UpdateMealPlan:
     def __init__(self):
@@ -176,37 +172,37 @@ class UpdateMealPlan:
         clustered_meals = self.cluster_meals(food_menus)
 
         for daily_meals in mealplan["mealplans"]:
-            used_recipes = {meal["recipe_id"] for meal in daily_meals if isinstance(meal, dict) and "recipe_id" in meal}
+            used_recipes = {int(meal["recipe_id"]) for meal in daily_meals if isinstance(meal, dict) and "recipe_id" in meal}
             empty_slots = [i for i, meal in enumerate(daily_meals) if meal == {}]
 
-            available_meals = [meal for meal in food_menus if meal["recipe_id"] not in used_recipes]
+            available_meals = [meal for meal in food_menus if int(meal["recipe_id"]) not in used_recipes]
             random.shuffle(available_meals)
 
-            # เติมเมนูโดยพิจารณาโภชนาการก่อน
             for i in empty_slots:
                 for meal in available_meals:
                     if self.is_within_nutrition_limit(daily_meals + [meal], nutrition_limit):
+                        meal["recipe_id"] = int(meal["recipe_id"])
                         daily_meals[i] = meal
-                        used_recipes.add(meal["recipe_id"])
+                        used_recipes.add(int(meal["recipe_id"]))
                         available_meals.remove(meal)
                         break
 
-            # ถ้ายังมีที่ว่าง ให้เลือกเมนูจากคลัสเตอร์แบบสุ่ม
             for i in empty_slots:
                 if daily_meals[i] == {}:
                     for cluster_id in clustered_meals:
                         cluster_meals = clustered_meals[cluster_id]
                         random.shuffle(cluster_meals)
                         for meal in cluster_meals:
-                            if meal["recipe_id"] not in used_recipes:
+                            if int(meal["recipe_id"]) not in used_recipes:
+                                meal["recipe_id"] = int(meal["recipe_id"])
                                 daily_meals[i] = meal
-                                used_recipes.add(meal["recipe_id"])
+                                used_recipes.add(int(meal["recipe_id"]))
                                 break
                         if daily_meals[i] != {}:
                             break
 
         return mealplan
-
+    
     def cluster_meals(self, food_menus):
         """ แบ่งกลุ่มอาหารโดยใช้ KMeans """
         num_clusters = 3  # บังคับให้แบ่งเป็น 3 คลัสเตอร์เสมอ
