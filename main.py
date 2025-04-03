@@ -102,7 +102,7 @@ class CreateMealPlan(MealPlanner):
             raise ValueError("Invalid food_data format")
         
         food_menus = food_data["food_menus"]
-        user_line_id = int(food_data.get("user_line_id", ""))
+        user_line_id = food_data.get("user_line_id", "")
         days = food_data.get("days")
         nutrition_limit = food_data.get("nutrition_limit_per_day", {})
 
