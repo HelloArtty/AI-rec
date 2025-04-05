@@ -15,9 +15,9 @@ from sklearn.cluster import KMeans
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
 
-class MealPlanner(ABC):
+class CreateMealPlan:
     def __init__(self):
-        super().__init__()
+        self.used_meals = set()
 
     @staticmethod
     def calculate_total_nutrition(meals):
@@ -25,7 +25,7 @@ class MealPlanner(ABC):
         valid_meals = [meal for meal in meals if isinstance(meal, dict) and "nutrition" in meal]
         if not valid_meals:
             return {}
-        
+
         total_nutrition = {key: 0 for key in valid_meals[0]["nutrition"].keys()}
         for meal in valid_meals:
             for key, value in meal["nutrition"].items():
@@ -34,8 +34,8 @@ class MealPlanner(ABC):
 
     @staticmethod
     def is_within_nutrition_limit(meals, nutrition_limit, buffer_percentage=0.3):
-        """ ตรวจสอบว่าอาหารยังอยู่ในขอบเขตโภชนาการ (ยืดหยุ่นขึ้น) """
-        total_nutrition = MealPlanner.calculate_total_nutrition(meals)
+        """ตรวจสอบว่าอาหารยังอยู่ในขอบเขตโภชนาการ (ยืดหยุ่นขึ้น)"""
+        total_nutrition = CreateMealPlan.calculate_total_nutrition(meals)
         for key, limit in nutrition_limit.items():
             if limit == -1:
                 continue  # ถ้าค่าจำกัดเป็น -1 หมายถึงไม่จำกัด ให้ข้ามไป
@@ -44,17 +44,6 @@ class MealPlanner(ABC):
                 return False  # ถ้าเกินขอบเขตที่ยืดหยุ่นแล้ว ไม่ให้ผ่าน
         return True  # ถ้าผ่านทุกตัวแปรโภชนาการ แสดงว่าผ่าน
 
-    @abstractmethod
-    def process_mealplan(self, *args, **kwargs):
-        """Abstract method to be implemented by child classes"""
-        pass
-
-
-class CreateMealPlan(MealPlanner):
-    def __init__(self):
-        super().__init__()
-        self.used_meals = set()
-        
     def select_meal(self, cluster_meals, selected_meals):
         """เลือกเมนูจากคลัสเตอร์ที่ยังไม่ซ้ำ"""
         random.shuffle(cluster_meals)
@@ -62,9 +51,9 @@ class CreateMealPlan(MealPlanner):
             if meal["name"] not in selected_meals and meal["name"] not in self.used_meals:
                 return meal
         return None
-    
+
     def cluster_meals(self, food_menus):
-        """ แบ่งกลุ่มอาหารโดยใช้ KMeans """
+        """แบ่งกลุ่มอาหารโดยใช้ KMeans"""
         num_clusters = 3  # บังคับให้แบ่งเป็น 3 คลัสเตอร์เสมอ
         model = SentenceTransformer('all-MiniLM-L6-v2')
 
@@ -86,21 +75,20 @@ class CreateMealPlan(MealPlanner):
 
         # ✅ ถ้าคลัสเตอร์ไหนไม่มีเมนู → แบ่งใหม่แบบสุ่ม
         if any(len(v) < min_meals_per_cluster for v in clustered_meals.values()):
-            # print("⚠️ Clustering is imbalanced. Using random splitting instead.")
             random.shuffle(food_menus)
             clustered_meals = {
                 0: food_menus[:num_meals // 3],
                 1: food_menus[num_meals // 3 : 2 * num_meals // 3],
                 2: food_menus[2 * num_meals // 3:]
             }
-        
+
         return clustered_meals
 
     def process_mealplan(self, food_data):
         """สร้างแผนมื้ออาหารแบบไม่ให้ซ้ำกันมากเกินไป"""
         if not isinstance(food_data, dict) or "food_menus" not in food_data:
             raise ValueError("Invalid food_data format")
-        
+
         food_menus = food_data["food_menus"]
         user_line_id = food_data.get("user_line_id", "")
         days = food_data.get("days")
@@ -117,7 +105,7 @@ class CreateMealPlan(MealPlanner):
             for cluster_id in clustered_meals:
                 meal = self.select_meal(clustered_meals[cluster_id], selected_meals)
                 if meal:
-                    meal["recipe_id"] = int(meal["recipe_id"])  # แปลง recipe_id เป็น int
+                    meal["recipe_id"] = int(meal["recipe_id"])
                     daily_meals.append(meal)
                     selected_meals.add(meal["name"])
                     self.used_meals.add(meal["name"])
@@ -127,7 +115,7 @@ class CreateMealPlan(MealPlanner):
             while len(daily_meals) < 3 and remaining_meals:
                 meal = remaining_meals.pop(0)
                 if meal["name"] not in selected_meals and self.is_within_nutrition_limit(daily_meals + [meal], nutrition_limit):
-                    meal["recipe_id"] = int(meal["recipe_id"])  # แปลง recipe_id เป็น int
+                    meal["recipe_id"] = int(meal["recipe_id"])
                     daily_meals.append(meal)
                     selected_meals.add(meal["name"])
                     self.used_meals.add(meal["name"])
@@ -302,4 +290,4 @@ async def update_meals(request: Request):
     return updated_mealplan
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run("main:app", host="127.0.0.1", port=4000, reload=True)
