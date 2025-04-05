@@ -209,6 +209,8 @@ class CreateMealPlan:
 class UpdateMealPlan:
     def __init__(self):
         super().__init__()
+        # Initialize used_meals set to track used meal names across days
+        self.used_meals = set()
 
     @staticmethod
     def calculate_total_nutrition(meals):
@@ -228,75 +230,50 @@ class UpdateMealPlan:
     def is_within_nutrition_limit(meals, nutrition_limit, buffer_percentage=0.08):
         """ตรวจสอบว่าโภชนาการอยู่ในขอบเขตที่กำหนด พร้อม buffer"""
         total_nutrition = UpdateMealPlan.calculate_total_nutrition(meals)
+
+        # เช็คว่า calories รวมของมื้อไม่ต่ำกว่า 85% ของ limit calories
+        min_calories = nutrition_limit.get("calories", 0) * 0.85  # คำนวณ 85% ของ limit calories
+        if total_nutrition.get("calories", 0) < min_calories:
+            return False  # ถ้าค่า calories รวมต่ำกว่า 85% ของ limit calories ให้ไม่ผ่าน
+
+        # เช็คว่า calories รวมไม่เกิน 102% ของ limit calories
+        max_calories = nutrition_limit.get("calories", 0) * 1.02  # คำนวณ 102% ของ limit calories
+        if total_nutrition.get("calories", 0) > max_calories:
+            return False  # ถ้าค่า calories รวมเกิน 102% ของ limit calories ให้ไม่ผ่าน
+
+        # เช็คขอบเขตโภชนาการอื่น ๆ
         for key, limit in nutrition_limit.items():
+            if key == "calories":
+                continue  # เราได้ตรวจสอบแคลอรี่แล้ว
             if limit == -1:
-                continue
-            buffer_limit = limit * (1 + buffer_percentage)
+                continue  # ถ้าค่าจำกัดเป็น -1 หมายถึงไม่จำกัด ให้ข้ามไป
+            buffer_limit = limit * (1 + buffer_percentage)  # เพิ่ม buffer 8%
             if total_nutrition.get(key, 0) > buffer_limit:
-                return False
-        return True
+                return False  # ถ้าเกินขอบเขตที่ยืดหยุ่นแล้ว ไม่ให้ผ่าน
 
-    def update_mealplan(self, mealplan, food_menus, nutrition_limit):
-        """อัปเดตแผนมื้ออาหารโดยเลือกเมนูที่สมดุลที่สุด"""
-        clustered_meals = self.cluster_meals(food_menus)
+        return True  # ถ้าผ่านทุกตัวแปรโภชนาการ แสดงว่าผ่าน
 
-        for daily_meals in mealplan["mealplans"]:
-            # Ensure daily_meals is a list
-            if not isinstance(daily_meals, list):
-                print(f"❌ Invalid daily_meals format: {daily_meals}")
-                continue  # Skip invalid entries
-
-            used_recipes = {int(meal["recipe_id"]) for meal in daily_meals if isinstance(meal, dict) and "recipe_id" in meal}
-            empty_slots = [i for i, meal in enumerate(daily_meals) if meal == {}]
-
-            available_meals = [meal for meal in food_menus if int(meal["recipe_id"]) not in used_recipes]
-            random.shuffle(available_meals)
-
-            # Fill empty slots with balanced meals
-            for i in empty_slots:
-                for meal in available_meals:
-                    if self.is_within_nutrition_limit(daily_meals + [meal], nutrition_limit):
-                        meal["recipe_id"] = int(meal["recipe_id"])
-                        daily_meals[i] = meal
-                        used_recipes.add(meal["recipe_id"])
-                        available_meals.remove(meal)
-                        break
-
-            # Fill remaining empty slots with meals from clusters
-            for i in empty_slots:
-                if daily_meals[i] == {}:
-                    for cluster_id in clustered_meals:
-                        cluster_meals = clustered_meals[cluster_id]
-                        random.shuffle(cluster_meals)
-                        for meal in cluster_meals:
-                            if int(meal["recipe_id"]) not in used_recipes:
-                                meal["recipe_id"] = int(meal["recipe_id"])
-                                daily_meals[i] = meal
-                                used_recipes.add(meal["recipe_id"])
-                                break
-                        if daily_meals[i] != {}:
-                            break
-
-        # Print total calories per day
-        for day, daily_meals in enumerate(mealplan["mealplans"], start=1):
-            daily_calories = sum(meal["nutrition"].get("calories", 0) for meal in daily_meals)
-            print(f"📅 Day {day} - Total Calories: {daily_calories}")
-
-        # Calculate total nutrition for all days
-        total_nutrition = self.calculate_total_nutrition([meal for daily_meals in mealplan["mealplans"] for meal in daily_meals])
-        total_nutrition = {key: round(value, 2) for key, value in total_nutrition.items()}  # Round to 2 decimal places
-
-        # Extract calorie-related information
-        total_calories = total_nutrition.get("calories", 0)
-        max_calories = nutrition_limit.get("calories", 0) * 1.02  # 102% of the limit
-        min_calories = max(nutrition_limit.get("calories", 0) * 0.85, 0)  # 85% of the limit
-
-        # Print overall calorie information
-        print(f"📊 Total Calories (All Days): {total_calories}")
-        print(f"📊 Max Calories Allowed: {round(max_calories, 2)}")
-        print(f"📊 Min Calories Allowed: {round(min_calories, 2)}")
-
-        return mealplan
+    def select_meal(self, cluster_meals, selected_meals):
+        """เลือกเมนูจากคลัสเตอร์ที่ยังไม่ซ้ำ และมีแคลอรี่เพียงพอ"""
+        random.shuffle(cluster_meals)
+        for meal in cluster_meals:
+            # ตรวจสอบว่าเมนูยังไม่ถูกใช้ในมื้อปัจจุบันและวันอื่น ๆ
+            if meal["name"] not in selected_meals and meal["name"] not in self.used_meals:
+                # เช็คว่า meal มีแคลอรีมากกว่า 300 หรือไม่
+                if meal["nutrition"].get("calories", 0) > 300:
+                    return meal
+        
+        # ถ้าไม่พบเมนูที่มีแคลอรี่มากกว่า 300 ให้พยายามหาเมนูที่ยังไม่ได้ใช้ (ไม่สนใจแคลอรี่)
+        for meal in cluster_meals:
+            if meal["name"] not in selected_meals and meal["name"] not in self.used_meals:
+                return meal
+                
+        # ถ้ายังไม่พบเมนูที่ยังไม่ถูกใช้ ให้ใช้เมนูซ้ำที่ยังไม่ได้ใช้ในมื้อปัจจุบัน
+        for meal in cluster_meals:
+            if meal["name"] not in selected_meals:
+                return meal
+                
+        return None
 
     def cluster_meals(self, food_menus):
         """แบ่งกลุ่มอาหารโดยใช้ KMeans"""
@@ -330,6 +307,166 @@ class UpdateMealPlan:
         print("📌 Clustered Meals:", {k: len(v) for k, v in clustered_meals.items()})
         return clustered_meals
 
+    def adjust_meals_based_on_calories(self, daily_meals, nutrition_limit, clustered_meals):
+        """ปรับมื้ออาหารให้ตรงตามเงื่อนไขของแคลอรี"""
+        selected_meals = set()
+        calories_limit = nutrition_limit.get("calories", 0)
+        min_calories = max(calories_limit * 0.85, 0)  # 85% ของ limit
+        max_calories = calories_limit * 1.02  # 102% ของ limit
+
+        attempts = 0  # ตัวนับจำนวนรอบการปรับ
+        max_attempts = 2000  # กำหนดจำนวนรอบสูงสุด เพื่อป้องกัน infinite loop
+
+        # เตรียมรายการเมนูที่มีแคลอรี่สูง
+        high_calorie_meals = []
+        for cluster in clustered_meals.values():
+            for meal in cluster:
+                if meal["nutrition"].get("calories", 0) > 300:  # เลือกเมนูที่มีแคลอรี่สูง
+                    high_calorie_meals.append(meal)
+
+        while attempts < max_attempts:
+            attempts += 1
+            daily_meals.clear()
+            selected_meals.clear()
+
+            # เลือกมื้ออาหารจากคลัสเตอร์ใหม่
+            cluster_list = list(clustered_meals.keys())
+            random.shuffle(cluster_list)
+            
+            # ถ้าแคลอรี่ต่ำ พยายามเลือกเมนูที่มีแคลอรี่สูง 1 เมนู
+            if attempts > 10 and high_calorie_meals:
+                meal = random.choice(high_calorie_meals)
+                meal["recipe_id"] = int(meal["recipe_id"])
+                daily_meals.append(meal)
+                selected_meals.add(meal["name"])
+                
+                # ลดจำนวนคลัสเตอร์ลง 1 เพราะใช้เมนูแคลอรี่สูงแล้ว 1 เมนู
+                if len(cluster_list) > 0:
+                    cluster_list.pop()
+            
+            # เลือกเมนูจากแต่ละคลัสเตอร์ที่เหลือ
+            for cluster_id in cluster_list:
+                meal = self.select_meal(clustered_meals[cluster_id], selected_meals)
+                if meal:
+                    meal["recipe_id"] = int(meal["recipe_id"])
+                    daily_meals.append(meal)
+                    selected_meals.add(meal["name"])
+                    self.used_meals.add(meal["name"])
+
+            # ถ้ายังไม่ครบ 3 มื้อ เลือกเพิ่มจากเมนูที่เหลือ
+            remaining_meals = [meal for cluster in clustered_meals.values() for meal in cluster]
+            random.shuffle(remaining_meals)
+
+            while len(daily_meals) < 3 and remaining_meals:
+                meal = remaining_meals.pop(0)
+                if meal["name"] not in selected_meals:
+                    meal["recipe_id"] = int(meal["recipe_id"])
+                    daily_meals.append(meal)
+                    selected_meals.add(meal["name"])
+                    self.used_meals.add(meal["name"])
+
+            # ตรวจสอบแคลอรีใหม่
+            total_calories = sum(meal["nutrition"].get("calories", 0) for meal in daily_meals)
+            
+            # เช็คว่าอยู่ในช่วงที่ต้องการหรือไม่
+            if min_calories <= total_calories <= max_calories:
+                print(f"✅ MealPlan successfully adjusted in {attempts} rounds. Total calories: {total_calories}")
+                return daily_meals
+
+        # ถ้าไม่สามารถหาเมนูที่เหมาะสมได้หลังจากลองหลายรอบ ให้เลือกเมนูที่ใกล้เคียงที่สุด
+        print(f"⚠️ Could not find ideal meal plan after {max_attempts} attempts. Using best available.")
+        return daily_meals
+
+    def update_mealplan(self, mealplan, food_menus, nutrition_limit):
+        """อัปเดตแผนมื้ออาหารโดยเลือกเมนูที่สมดุลที่สุด"""
+        # ล้าง used_meals เมื่อเริ่มต้นการอัปเดตใหม่
+        self.used_meals = set()
+        
+        clustered_meals = self.cluster_meals(food_menus)
+
+        for day_index, daily_meals in enumerate(mealplan["mealplans"]):
+            # Ensure daily_meals is a list
+            if not isinstance(daily_meals, list):
+                print(f"❌ Invalid daily_meals format: {daily_meals}")
+                continue  # Skip invalid entries
+
+            used_recipes = {int(meal["recipe_id"]) for meal in daily_meals if isinstance(meal, dict) and "recipe_id" in meal}
+            empty_slots = [i for i, meal in enumerate(daily_meals) if meal == {}]
+
+            available_meals = [meal for meal in food_menus if int(meal["recipe_id"]) not in used_recipes]
+            
+            # เก็บเมนูเดิมที่มีอยู่แล้ว (ไม่ใช่ empty slot)
+            existing_meals = [meal for meal in daily_meals if meal != {}]
+            
+            # เริ่มด้วยการตรวจสอบว่าเมนูที่มีอยู่แล้วอยู่ในขอบเขตหรือไม่
+            if existing_meals and not self.is_within_nutrition_limit(existing_meals, nutrition_limit):
+                # ถ้าไม่อยู่ในขอบเขต ให้เริ่มการเลือกเมนูใหม่ทั้งหมด
+                daily_meals = []
+                new_meals = self.adjust_meals_based_on_calories(daily_meals, nutrition_limit, clustered_meals)
+                # อัปเดตเมนูในวันนั้น
+                mealplan["mealplans"][day_index] = new_meals
+            else:
+                # ถ้ามี empty slots ให้เติมเมนูใหม่ที่ไม่ทำให้เกินขอบเขต
+                for i in empty_slots:
+                    found_suitable_meal = False
+                    random.shuffle(available_meals)
+                    
+                    for meal in available_meals:
+                        temp_meals = existing_meals.copy()
+                        temp_meals.append(meal)
+                        if self.is_within_nutrition_limit(temp_meals, nutrition_limit):
+                            meal["recipe_id"] = int(meal["recipe_id"])
+                            daily_meals[i] = meal
+                            self.used_meals.add(meal["name"])
+                            used_recipes.add(meal["recipe_id"])
+                            available_meals.remove(meal)
+                            found_suitable_meal = True
+                            break
+                    
+                    # ถ้าไม่พบเมนูที่เหมาะสม ให้ลองเลือกจากคลัสเตอร์
+                    if not found_suitable_meal:
+                        for cluster_id in clustered_meals:
+                            cluster_meals = clustered_meals[cluster_id]
+                            random.shuffle(cluster_meals)
+                            for meal in cluster_meals:
+                                if int(meal["recipe_id"]) not in used_recipes:
+                                    temp_meals = existing_meals.copy()
+                                    temp_meals.append(meal)
+                                    if self.is_within_nutrition_limit(temp_meals, nutrition_limit):
+                                        meal["recipe_id"] = int(meal["recipe_id"])
+                                        daily_meals[i] = meal
+                                        self.used_meals.add(meal["name"])
+                                        used_recipes.add(meal["recipe_id"])
+                                        found_suitable_meal = True
+                                        break
+                            if found_suitable_meal:
+                                break
+                
+                # หลังจากเติมเมนูแล้ว ตรวจสอบอีกครั้งว่าอยู่ในขอบเขตหรือไม่
+                if not self.is_within_nutrition_limit(daily_meals, nutrition_limit):
+                    print(f"❌ Day {day_index+1}: Nutrition limit not satisfied. Adjusting meals completely.")
+                    new_meals = self.adjust_meals_based_on_calories([], nutrition_limit, clustered_meals)
+                    mealplan["mealplans"][day_index] = new_meals
+
+            # Print total calories per day
+            # daily_calories = sum(meal["nutrition"].get("calories", 0) for meal in mealplan["mealplans"][day_index])
+            # print(f"📅 Day {day_index+1} - Total Calories: {daily_calories}")
+
+        # Calculate total nutrition for all days
+        total_nutrition = self.calculate_total_nutrition([meal for daily_meals in mealplan["mealplans"] for meal in daily_meals])
+        total_nutrition = {key: round(value, 2) for key, value in total_nutrition.items()}  # Round to 2 decimal places
+
+        # Extract calorie-related information
+        total_calories = total_nutrition.get("calories", 0)
+        max_calories = nutrition_limit.get("calories", 0) * 1.02  # 102% of the limit
+        min_calories = max(nutrition_limit.get("calories", 0) * 0.85, 0)  # 85% of the limit
+
+        # Print overall calorie information
+        print(f"📊 Total Calories (All Days): {total_calories}")
+        print(f"📊 Max Calories Allowed: {round(max_calories, 2)}")
+        print(f"📊 Min Calories Allowed: {round(min_calories, 2)}")
+
+        return mealplan
 
 
 app = FastAPI()
