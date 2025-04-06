@@ -3,7 +3,48 @@
 
 server.py
 data.json
-__pycache__
+__pycache__*
 test.py
+test*
 
-/__pycache__
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.env/
+.envrc
+*.env
+pip-log.txt
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Test artifacts
+htmlcov/
+.tox/
+.coverage
+.pytest_cache/
+test/
+
+# Ignore data and secrets
+data.json
+*.json
+secrets.*
+server.py
