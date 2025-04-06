@@ -453,9 +453,9 @@ class MealPlanGenerator:
             # logger.info(f"- {meal_name}: {count} ครั้ง")
         # logger.info("✅ สร้างแผนอาหารสำเร็จ!")
 
-        print("📌 Total Calories:", round(total_calories, 2))
-        print("📌 Max Calories:", round(max_cals, 2))
-        print("📌 Min Calories:", round(min_cals, 2))
+        print("📊 Total Calories:", round(total_calories, 2))
+        print("📊 Max Calories:", round(max_cals, 2))
+        print("📊 Min Calories:", round(min_cals, 2))
         
         print("📌 Most Used Meals:")
         meal_usage = {meal: len(days) for meal, days in self.meal_selector.used_meals.items()}
