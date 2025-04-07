@@ -1,5 +1,5 @@
 # ใช้ Python เวอร์ชันล่าสุดที่รองรับ
-FROM python:3.10
+FROM python:3.11-slim
 
 # กำหนดโฟลเดอร์ทำงานใน Container
 WORKDIR /app

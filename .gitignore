@@ -48,3 +48,7 @@ data.json
 *.json
 secrets.*
 server.py
+
+.venv/
+
+.github/

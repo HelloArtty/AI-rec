@@ -1,23 +1,17 @@
 import json
 import os
 import random
-from abc import ABC, abstractmethod
 
 import numpy as np
 import requests
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from sentence_transformers import SentenceTransformer
-from sklearn.cluster import KMeans
 import logging
-from typing import Dict, List, Set, Any, Tuple, Optional, Union
+from typing import Dict, List, Any, Optional
 from collections import defaultdict
-model = SentenceTransformer('all-MiniLM-L6-v2')
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
-
 
 
 # # ตั้งค่า logger
@@ -454,18 +448,18 @@ class MealPlanGenerator:
             # logger.info(f"- {meal_name}: {count} ครั้ง")
         # logger.info("✅ สร้างแผนอาหารสำเร็จ!")
 
-        print("📊 Total Calories:", round(total_calories, 2))
-        print("📊 Max Calories:", round(max_cals, 2))
-        print("📊 Min Calories:", round(min_cals, 2))
+        print("📊 แคลอรี่รวม:", round(total_calories, 2))
+        print("📊 แคลอรี่สูงสุด:", round(max_cals, 2))
+        print("📊 แคลอรี่ขั้นต่ำ:", round(min_cals, 2))
         
-        print("📌 Most Used Meals:")
+        print("📌 อาหารที่ใช้บ่อย:")
         meal_usage = {meal: len(days) for meal, days in self.meal_selector.used_meals.items()}
         most_used_meals = sorted(meal_usage.items(), key=lambda x: x[1], reverse=True)[:10]
         for meal_name, count in most_used_meals:
             print(f"- {meal_name}: {count} ครั้ง")
             
             
-        print("✅ Successfully created meal plan!")
+        print("✅ สร้างแผนอาหารสำเร็จ!")
         
         return mealplan
 
@@ -482,10 +476,10 @@ class CreateMealPlan(MealPlanGenerator):
             max_cal_ratio=1.05,
             buffer_percentage=0.08
         )
-        self.cal_limit = 0.85  # สำหรับความเข้ากันได้กับโค้ดเดิม
-        self.per = 0.20        # สำหรับความเข้ากันได้กับโค้ดเดิม
-        self.max = 1.05        # สำหรับความเข้ากันได้กับโค้ดเดิม
-    
+        self.cal_limit = 0.85
+        self.per = 0.20
+        self.max = 1.05
+
     def process_mealplan(self, food_data):
         """
         สร้างแผนอาหารโดยใช้ method ใหม่
@@ -534,10 +528,25 @@ class UpdateMealPlan:
                 return False
         return True
 
+    def weighted_random_selection(self, meals, key="nutrition", weight_key="calories"):
+        """เลือกอาหารแบบสุ่มโดยใช้น้ำหนัก"""
+        if not meals:
+            raise ValueError("ไม่มีอาหารให้เลือก")
+
+        weights = [meal.get(key, {}).get(weight_key, 0) for meal in meals]
+        total_weight = sum(weights)
+
+        if total_weight == 0:
+            return random.choice(meals)  # fallback หากไม่มีน้ำหนัก
+
+        probabilities = [weight / total_weight for weight in weights]
+        return random.choices(meals, probabilities, k=1)[0]
+
+
     def update_mealplan(self, mealplan, food_menus, nutrition_limit):
         """อัปเดตแผนมื้ออาหารโดยเลือกเมนูที่สมดุลที่สุด"""
         food_menus = [meal for meal in food_menus if meal["nutrition"].get("calories", 0) >= 300]
-        clustered_meals = self.cluster_meals(food_menus)
+        clustered_meals = self.weighted_random_selection(food_menus)
 
         for daily_meals in mealplan["mealplans"]:
             used_recipes = {int(meal["recipe_id"]) for meal in daily_meals if isinstance(meal, dict) and "recipe_id" in meal}
@@ -558,9 +567,9 @@ class UpdateMealPlan:
             for i in empty_slots:
                 if daily_meals[i] == {}:
                     for cluster_id in clustered_meals:
-                        cluster_meals = clustered_meals[cluster_id]
-                        random.shuffle(cluster_meals)
-                        for meal in cluster_meals:
+                        weighted_random_selection = clustered_meals[cluster_id]
+                        random.shuffle(weighted_random_selection)
+                        for meal in weighted_random_selection:
                             if int(meal["recipe_id"]) not in used_recipes:
                                 meal["recipe_id"] = int(meal["recipe_id"])
                                 daily_meals[i] = meal
@@ -568,55 +577,10 @@ class UpdateMealPlan:
                                 break
                         if daily_meals[i] != {}:
                             break
+                        
+        print("✅ แก้ไขมื้ออาหารสำเร็จ!")
 
         return mealplan
-    
-    def cluster_meals(self, food_menus):
-        """ แบ่งกลุ่มอาหารโดยใช้ KMeans """
-        num_clusters = 3  # บังคับให้แบ่งเป็น 3 คลัสเตอร์เสมอ
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-
-        meal_names = [meal['name'] for meal in food_menus]
-        embeddings = model.encode(meal_names)
-
-        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
-        clusters = kmeans.fit_predict(embeddings)
-
-        clustered_meals = {i: [] for i in range(num_clusters)}
-        for meal, cluster in zip(food_menus, clusters):
-            clustered_meals[cluster].append(meal)
-
-        # ตรวจสอบจำนวนเมนูทั้งหมดแล้วหาร 3 เพื่อกำหนดจำนวนเมนูในแต่ละคลัสเตอร์
-        num_meals = len(food_menus)
-        print("📌 Number of meals:", num_meals)
-        min_meals_per_cluster = num_meals // num_clusters
-        print("📌 Min meals per cluster:", min_meals_per_cluster)
-
-        # ✅ ถ้าคลัสเตอร์ไหนไม่มีเมนู → แบ่งใหม่แบบสุ่ม
-        if any(len(v) < min_meals_per_cluster for v in clustered_meals.values()):
-            random.shuffle(food_menus)
-            clustered_meals = {
-                0: food_menus[:num_meals // 3],
-                1: food_menus[num_meals // 3 : 2 * num_meals // 3],
-                2: food_menus[2 * num_meals // 3:]
-            }
-        print("📌 Clustered Meals:", {k: len(v) for k, v in clustered_meals.items()})
-        return clustered_meals
-
-    def find_balanced_meal(self, available_meals, nutrition_limit):
-        """ค้นหาเมนูที่สมดุลที่สุดจากรายการที่เหลือ"""
-        best_meal = None
-        best_score = float("inf")
-
-        for meal in available_meals:
-            total_nutrition = self.calculate_total_nutrition([meal])
-            score = sum(abs((total_nutrition.get(nutr, 0) / nutrition_limit[nutr]) - 1) for nutr in nutrition_limit if nutrition_limit[nutr] > 0)
-            
-            if score < best_score:
-                best_score = score
-                best_meal = meal
-
-        return best_meal
 
 
 
@@ -629,7 +593,7 @@ def root():
 
 @app.post("/ai")
 async def create_meals(request: Request):
-    print("🍽 กำลังดึงข้อมูลจากเซิร์ฟเวอร์...")
+    print("🍽  กำลังดึงข้อมูลจากเซิร์ฟเวอร์")
 
     creator = CreateMealPlan()
     food_data = await request.json()
@@ -637,7 +601,7 @@ async def create_meals(request: Request):
     if not food_data:
         raise HTTPException(status_code=400, detail="Invalid input data")
 
-    print("🔍 กำลังสร้างแผนมื้ออาหาร...")
+    print("🔍 กำลังสร้างแผนมื้ออาหาร")
     try:
         mealplan = creator.process_mealplan(food_data)
     except Exception as e:
@@ -648,7 +612,7 @@ async def create_meals(request: Request):
 @app.post("/ai_update")
 async def update_meals(request: Request):
     updater = UpdateMealPlan()
-    print("🍽 กำลังดึงข้อมูลจากเซิร์ฟเวอร์...")
+    print("🍽  กำลังดึงข้อมูลจากเซิร์ฟเวอร์")
 
     try:
         request_data = await request.json()
@@ -662,7 +626,7 @@ async def update_meals(request: Request):
         if not food_data or not nutrition_limit_per_day or not mealplan:
             raise HTTPException(status_code=400, detail="Missing required data")
         
-        print("🔍 กำลังสร้างแผนมื้ออาหาร...")
+        print("🔍 กำลังสร้างแผนมื้ออาหาร")
         updated_mealplan = updater.update_mealplan(mealplan, food_data, nutrition_limit_per_day)
     
     except Exception as e:
