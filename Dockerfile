@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . /app
 
 # ติดตั้ง dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
 # เปิดพอร์ต 8080 (Cloud Run ใช้พอร์ตนี้)
 EXPOSE 8080
